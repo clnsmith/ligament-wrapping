@@ -34,6 +34,9 @@ public:
     SEGMENTED_CURVE<TV>* wire_curve;
     FREE_PARTICLES<TV>* wire_particles;
 
+    SEGMENTED_CURVE<TV>* wire_curve2;
+    FREE_PARTICLES<TV>* wire_particles2;
+
     const T sphere_radius;
     const TV sphere_position;
 

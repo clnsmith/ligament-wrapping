@@ -32,6 +32,7 @@ void SIMULATION_LAYOUT<T>::Initialize()
 {
     particles.Store_Velocity();
 
+    // Wire 1
     wire_curve=SEGMENTED_CURVE<TV>::Create(particles);
     wire_curve->mesh.Initialize_Straight_Mesh(n);particles.array_collection->Add_Elements(n);
     for(int p=1;p<=n;p++) particles.X(p)=TV((T)(p-1)/(T)(n-1),0,0);
@@ -40,6 +41,19 @@ void SIMULATION_LAYOUT<T>::Initialize()
     for(int p=1;p<=n;p++) wire_particles->nodes.Append(p);
 
     collection.Add_Structure(wire_curve);collection.Add_Structure(wire_particles);
+
+    mass.Resize(n);mass.Fill(wire_mass/(T)n);
+    restlength.Resize(n-1);restlength.Fill(wire_restlength/(T)(n-1));
+
+    // Wire 2
+    wire_curve2=SEGMENTED_CURVE<TV>::Create(particles);
+    wire_curve2->mesh.Initialize_Straight_Mesh(n);particles.array_collection->Add_Elements(n);
+    for(int p=1;p<=n;p++) particles.X(p)=TV((T)(p-1)/(T)(n-1),0,0.25);
+
+    wire_particles2=FREE_PARTICLES<TV>::Create(particles);
+    for(int p=1;p<=n;p++) wire_particles2->nodes.Append(p);
+
+    collection.Add_Structure(wire_curve2);collection.Add_Structure(wire_particles2);
 
     mass.Resize(n);mass.Fill(wire_mass/(T)n);
     restlength.Resize(n-1);restlength.Fill(wire_restlength/(T)(n-1));
@@ -53,6 +67,8 @@ void SIMULATION_LAYOUT<T>::Initialize()
     exit(0);
 #endif
 
+// Sphere
+
     TRIANGULATED_SURFACE<T>* input_collision_surface=TRIANGULATED_SURFACE<T>::Create();
     FILE_UTILITIES::Read_From_File(stream_type,"sphere.tri",*input_collision_surface);
     for(int p=1;p<=input_collision_surface->particles.array_collection->Size();p++)
@@ -63,6 +79,10 @@ void SIMULATION_LAYOUT<T>::Initialize()
 
     wire_curve->Update_Number_Nodes();
     wire_particles->Update_Number_Nodes();
+
+    wire_curve2->Update_Number_Nodes();
+    wire_particles2->Update_Number_Nodes();
+
     collision_surface->Update_Number_Nodes();    
     
     // ball_volume=TETRAHEDRALIZED_VOLUME<T>::Create(particles);
@@ -76,6 +96,7 @@ void SIMULATION_LAYOUT<T>::Initialize()
 template<class T>
 void SIMULATION_LAYOUT<T>::Add_Elastic_Forces(ARRAY_VIEW<const TV> X,ARRAY_VIEW<TV> force) const
 {
+    //Wire 1 Elastic
     for(int s=1;s<=wire_curve->mesh.elements.m;s++){
         int p1,p2;wire_curve->mesh.elements(s).Get(p1,p2);
         TV X1=X(p1),X2=X(p2);
@@ -83,7 +104,16 @@ void SIMULATION_LAYOUT<T>::Add_Elastic_Forces(ARRAY_VIEW<const TV> X,ARRAY_VIEW<
         force(p1)+=f;force(p2)-=f;
     }
 
-    for(int p=1;p<=n;p++){
+    //Wire 2 Elastic
+    for(int s=1;s<=wire_curve2->mesh.elements.m;s++){
+        int p1,p2;wire_curve2->mesh.elements(s).Get(p1,p2);
+        TV X1=X(p1),X2=X(p2);
+        TV f=-(youngs_modulus/restlength(s))*(X1-X2);
+        force(p1)+=f;force(p2)-=f;
+    }
+
+    //Sphere Contact
+    for(int p=1;p<=2*n;p++){
         const TV& X=particles.X(p);
         T depth=(X-sphere_position).Magnitude()-sphere_radius;
         if(depth>0) continue;
@@ -98,8 +128,16 @@ template<class T>
 void SIMULATION_LAYOUT<T>::Add_Damping_Forces(ARRAY_VIEW<const TV> X,ARRAY_VIEW<const TV> V,
     ARRAY_VIEW<TV> force) const
 {
+    //Wire 1
     for(int s=1;s<=wire_curve->mesh.elements.m;s++){
         int p1,p2;wire_curve->mesh.elements(s).Get(p1,p2);
+        TV V1=V(p1),V2=V(p2);
+        TV f=-(damping_coefficient/restlength(s))*(V1-V2);
+        force(p1)+=f;force(p2)-=f;
+
+    //Wire 2
+    for(int s=1;s<=wire_curve2->mesh.elements.m;s++){
+        int p1,p2;wire_curve2->mesh.elements(s).Get(p1,p2);
         TV V1=V(p1),V2=V(p2);
         TV f=-(damping_coefficient/restlength(s))*(V1-V2);
         force(p1)+=f;force(p2)-=f;
@@ -110,8 +148,17 @@ template<class T>
 void SIMULATION_LAYOUT<T>::Add_Force_Differential(ARRAY_VIEW<const TV> X,ARRAY_VIEW<const TV> dX,
     ARRAY_VIEW<TV> dforce) const
 {
+    //Wire 1
     for(int s=1;s<=wire_curve->mesh.elements.m;s++){
         int p1,p2;wire_curve->mesh.elements(s).Get(p1,p2);
+        TV dX1=dX(p1),dX2=dX(p2);
+        TV df=-(youngs_modulus/restlength(s))*(dX1-dX2);
+        dforce(p1)+=df;dforce(p2)-=df;
+    }
+
+    //Wire 2
+    for(int s=1;s<=wire_curve2->mesh.elements.m;s++){
+        int p1,p2;wire_curve2->mesh.elements(s).Get(p1,p2);
         TV dX1=dX(p1),dX2=dX(p2);
         TV df=-(youngs_modulus/restlength(s))*(dX1-dX2);
         dforce(p1)+=df;dforce(p2)-=df;
@@ -121,6 +168,7 @@ void SIMULATION_LAYOUT<T>::Add_Force_Differential(ARRAY_VIEW<const TV> X,ARRAY_V
 template<class T>
 void SIMULATION_LAYOUT<T>::Add_External_Forces(ARRAY_VIEW<TV> force) const
 {
+    //Gravity on Wire
 //    for(int p=1;p<=n;p++)
 //        force(p)-=TV::Axis_Vector(2)*mass(p)*9.81;
 }
@@ -141,26 +189,49 @@ void SIMULATION_LAYOUT<T>::Write_Output(const int frame) const
 template<class T>
 void SIMULATION_LAYOUT<T>::Set_Kinematic_Positions(const T time,ARRAY_VIEW<TV> X) const
 {
-    // Fix the 2 extremes to remain immovable
+    // Fix the 2 Wire end points to remain immovable
+    //Wire 1
     X(1)=TV();
     X(n)=TV::Axis_Vector(1);
+
+    //Wire 2
+    //X(n+1)=TV(0,0,0.25);
+    //X(2*n)=TV(1,0,0.25);
+    X(n+1)=TV();
+    X(2*n)=TV(0,0,1);
 }
 
 template<class T>
 void SIMULATION_LAYOUT<T>::Add_Kinematic_Positions(const T time,const T factor,ARRAY_VIEW<TV> X) const
 {
     // Fix the 2 extremes to remain immovable
+    
+    //Wire 1
     X(1)+=TV();
     X(n)+=TV::Axis_Vector(1)*factor;
+
+    //Wire 2
+    //X(n+1)=TV(0,0,0.25);
+    //X(2*n)=TV(1,0,0.25);
+
+    X(n+1)=TV();
+    X(2*n)=TV(0,0,1)*factor;
 }
 
 template<class T>
 void SIMULATION_LAYOUT<T>::Set_Kinematic_Velocities(const T time,ARRAY_VIEW<TV> V) const
 {
     // Fix the 2 extremes to remain immovable
+    //Wire1
     V(1)=TV();
     V(n)=TV();
-    for(int p=n+1;p<=particles.array_collection->Size();p++)
+
+    //Wire2
+    V(n+1)=TV();
+    V(2*n)=TV();
+
+    //Sphere
+    for(int p=2*n+1;p<=particles.array_collection->Size();p++)
         V(p)=TV();
 }
 
@@ -168,9 +239,16 @@ template<class T>
 void SIMULATION_LAYOUT<T>::Clear_Values_Of_Kinematic_Particles(ARRAY_VIEW<TV> array) const
 {
     // Fix the 2 extremes to remain immovable
+    //Wire 1
     array(1)=TV();
     array(n)=TV();
-    for(int p=n+1;p<=particles.array_collection->Size();p++)
+
+    //Wire 2
+    array(n+1)=TV();
+    array(2*n)=TV();
+
+    //Sphere
+    for(int p=2*n+1;p<=particles.array_collection->Size();p++)
         array(p)=TV();
 }
 
